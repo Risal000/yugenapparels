@@ -10,7 +10,7 @@ const TAG_OPTIONS = ["new_arrival", "trending", "limited_drop", "featured"];
 
 const EMPTY = {
   name: "", price: "", original_price: "", category: "tops", subcategory: "",
-  description: "", image_url: "", hover_image_url: "", sizes: [], tags: [], in_stock: true,
+  description: "", image_url: "", hover_image_url: "", gallery_images: [], sizes: [], tags: [], in_stock: true,
 };
 
 async function uploadImage(file) {
@@ -24,32 +24,21 @@ async function uploadImage(file) {
 
 function ImageUploadField({ label, url, onUrl }) {
   const [uploading, setUploading] = useState(false);
-
   const handleFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
-    try {
-      const uploadedUrl = await uploadImage(file);
-      onUrl(uploadedUrl);
-    } catch (err) {
-      alert("Upload failed: " + err.message);
-    }
+    try { const u = await uploadImage(file); onUrl(u); }
+    catch (err) { alert("Upload failed: " + err.message); }
     setUploading(false);
   };
-
   return (
     <div>
       <label className="block text-[9px] tracking-[0.2em] uppercase text-foreground/30 mb-2 font-light">{label}</label>
       <div className="space-y-2">
         {url && <img src={url} alt="" className="w-24 h-28 object-cover border border-border/30" />}
         <div className="flex gap-2 items-center">
-          <input
-            value={url}
-            onChange={(e) => onUrl(e.target.value)}
-            placeholder="Paste image URL..."
-            className={inputCls + " flex-1"}
-          />
+          <input value={url} onChange={(e) => onUrl(e.target.value)} placeholder="Paste image URL..." className={inputCls + " flex-1"} />
           <label className="cursor-pointer px-3 py-2.5 border border-border/30 text-[10px] text-foreground/40 hover:border-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap">
             {uploading ? "Uploading..." : "Upload"}
             <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
@@ -60,11 +49,116 @@ function ImageUploadField({ label, url, onUrl }) {
   );
 }
 
+function GalleryUploadField({ label, images = [], onChange }) {
+  const [uploading, setUploading] = useState(false);
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      const urls = await Promise.all(files.map(uploadImage));
+      onChange([...images, ...urls]);
+    } catch (err) { alert("Upload failed: " + err.message); }
+    setUploading(false);
+  };
+  return (
+    <div>
+      <label className="block text-[9px] tracking-[0.2em] uppercase text-foreground/30 mb-2 font-light">{label}</label>
+      <div className="grid grid-cols-4 gap-2 mb-2">
+        {images.map((url, i) => (
+          <div key={i} className="relative group aspect-square">
+            <img src={url} alt="" className="w-full h-full object-cover border border-border/30" />
+            <button type="button" onClick={() => onChange(images.filter((_, idx) => idx !== i))}
+              className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <X className="w-3.5 h-3.5 text-white" />
+            </button>
+            {i === 0 && <span className="absolute top-1 left-1 text-[7px] bg-white text-black px-1">Main</span>}
+            {i === 1 && <span className="absolute top-1 left-1 text-[7px] bg-black/60 text-white px-1">Hover</span>}
+          </div>
+        ))}
+      </div>
+      <label className="cursor-pointer w-full py-2 border border-dashed border-border/30 text-[9px] tracking-[0.15em] uppercase text-foreground/30 hover:border-foreground/30 hover:text-foreground/50 transition-colors flex items-center justify-center gap-1.5">
+        {uploading ? "Uploading..." : <><Plus className="w-3 h-3" /> Add Images (select multiple)</>}
+        <input type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
+      </label>
+      <p className="text-[8px] text-foreground/20 mt-1">1st image = main · 2nd = hover on card · rest = gallery on product page</p>
+    </div>
+  );
+}
+
+function ColorVariantField({ variant, index, onChange, onRemove }) {
+  const [uploading, setUploading] = useState(false);
+  const set = (key, val) => onChange(index, { ...variant, [key]: val });
+
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploading(true);
+    try {
+      const urls = await Promise.all(files.map(uploadImage));
+      const existing = variant.images || [];
+      onChange(index, { ...variant, images: [...existing, ...urls], image_url: existing[0] || urls[0] });
+    } catch (err) { alert("Upload failed: " + err.message); }
+    setUploading(false);
+  };
+
+  const images = variant.images || (variant.image_url ? [variant.image_url] : []);
+
+  return (
+    <div className="bg-card border border-border/20 p-3 space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <input className={inputCls} placeholder="Color name (e.g. Ash Grey)" value={variant.name || ""} onChange={(e) => set("name", e.target.value)} />
+        <div className="flex items-center gap-2">
+          <input type="color" value={variant.hex || "#ffffff"} onChange={(e) => set("hex", e.target.value)} className="w-10 h-[38px] bg-card border border-border/30 cursor-pointer p-0.5" />
+          <input className={`${inputCls} flex-1`} placeholder="#hex" value={variant.hex || ""} onChange={(e) => set("hex", e.target.value)} />
+        </div>
+      </div>
+
+      {/* Color images gallery */}
+      <div>
+        <p className="text-[9px] tracking-[0.15em] uppercase text-foreground/25 mb-1.5">Images for this color</p>
+        <div className="grid grid-cols-4 gap-1.5 mb-2">
+          {images.map((url, i) => (
+            <div key={i} className="relative group aspect-square">
+              <img src={url} alt="" className="w-full h-full object-cover border border-border/20" />
+              <button type="button" onClick={() => {
+                const updated = images.filter((_, idx) => idx !== i);
+                onChange(index, { ...variant, images: updated, image_url: updated[0] || "" });
+              }} className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <X className="w-3 h-3 text-white" />
+              </button>
+              {i === 0 && <span className="absolute top-0.5 left-0.5 text-[7px] bg-white text-black px-1">Main</span>}
+            </div>
+          ))}
+        </div>
+        <label className="cursor-pointer w-full py-1.5 border border-dashed border-border/20 text-[8px] tracking-wide uppercase text-foreground/25 hover:border-foreground/25 transition-colors flex items-center justify-center gap-1">
+          {uploading ? "Uploading..." : <><Plus className="w-2.5 h-2.5" /> Add color images</>}
+          <input type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
+        </label>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <button type="button" onClick={() => set("in_stock", !(variant.in_stock !== false))}
+            className={`w-8 h-4 relative transition-colors ${variant.in_stock !== false ? "bg-foreground/40" : "bg-border/40"}`}>
+            <span className={`absolute top-0.5 w-3 h-3 bg-foreground transition-transform ${variant.in_stock !== false ? "translate-x-4" : "translate-x-0.5"}`} />
+          </button>
+          <span className="text-[9px] text-foreground/35">{variant.in_stock !== false ? "In Stock" : "Out of Stock"}</span>
+        </label>
+        <button type="button" onClick={() => onRemove(index)} className="text-foreground/25 hover:text-destructive transition-colors">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ProductForm({ product, onClose, onSaved }) {
   const [form, setForm] = useState(product ? {
     ...product,
     price: product.price ?? "",
     original_price: product.original_price ?? "",
+    gallery_images: product.gallery_images || [],
   } : { ...EMPTY });
   const [saving, setSaving] = useState(false);
   const [colorVariants, setColorVariants] = useState(product?.color_variants || []);
@@ -78,6 +172,23 @@ export default function ProductForm({ product, onClose, onSaved }) {
     }));
   };
 
+  const updateColorVariant = (index, updated) => {
+    const u = [...colorVariants];
+    u[index] = updated;
+    setColorVariants(u);
+  };
+
+  const handleGalleryChange = (images) => {
+    set("gallery_images", images);
+    if (images[0]) set("image_url", images[0]);
+    if (images[1]) set("hover_image_url", images[1]);
+    else set("hover_image_url", "");
+  };
+
+  const allImages = form.gallery_images?.length > 0
+    ? form.gallery_images
+    : [form.image_url, form.hover_image_url].filter(Boolean);
+
   const handleSave = async () => {
     setSaving(true);
     const data = {
@@ -85,6 +196,7 @@ export default function ProductForm({ product, onClose, onSaved }) {
       price: parseFloat(form.price) || 0,
       original_price: form.original_price ? parseFloat(form.original_price) : null,
       color_variants: colorVariants,
+      gallery_images: allImages,
     };
     if (product?.id) {
       await Products.update(product.id, data);
@@ -140,26 +252,35 @@ export default function ProductForm({ product, onClose, onSaved }) {
           <Field label="Description">
             <textarea className={`${inputCls} h-24 resize-none`} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Short product description..." />
           </Field>
-          <ImageUploadField label="Main Image" url={form.image_url} onUrl={(url) => set("image_url", url)} />
-          <ImageUploadField label="Hover Image (optional)" url={form.hover_image_url} onUrl={(url) => set("hover_image_url", url)} />
+
+          {/* Gallery images */}
+          <GalleryUploadField
+            label="Product Images (upload multiple)"
+            images={allImages}
+            onChange={handleGalleryChange}
+          />
+
           <Field label="Sizes">
             <div className="flex flex-wrap gap-2 mt-1">
               {SIZE_OPTIONS.map((s) => (
-                <button key={s} type="button" onClick={() => toggleArr("sizes", s)} className={`px-3 py-1.5 text-[10px] tracking-wide border transition-colors ${form.sizes?.includes(s) ? "border-foreground/50 text-foreground bg-foreground/8" : "border-border/30 text-foreground/30 hover:border-foreground/30"}`}>{s}</button>
+                <button key={s} type="button" onClick={() => toggleArr("sizes", s)}
+                  className={`px-3 py-1.5 text-[10px] tracking-wide border transition-colors ${form.sizes?.includes(s) ? "border-foreground/50 text-foreground bg-foreground/8" : "border-border/30 text-foreground/30 hover:border-foreground/30"}`}>{s}</button>
               ))}
             </div>
           </Field>
           <Field label="Tags">
             <div className="flex flex-wrap gap-2 mt-1">
               {TAG_OPTIONS.map((t) => (
-                <button key={t} type="button" onClick={() => toggleArr("tags", t)} className={`px-3 py-1.5 text-[10px] tracking-wide border transition-colors ${form.tags?.includes(t) ? "border-foreground/50 text-foreground bg-foreground/8" : "border-border/30 text-foreground/30 hover:border-foreground/30"}`}>{t.replace("_", " ")}</button>
+                <button key={t} type="button" onClick={() => toggleArr("tags", t)}
+                  className={`px-3 py-1.5 text-[10px] tracking-wide border transition-colors ${form.tags?.includes(t) ? "border-foreground/50 text-foreground bg-foreground/8" : "border-border/30 text-foreground/30 hover:border-foreground/30"}`}>{t.replace("_", " ")}</button>
               ))}
             </div>
           </Field>
 
           {/* Color Variants */}
           <div>
-            <button type="button" onClick={() => setColorsOpen(!colorsOpen)} className="flex items-center justify-between w-full text-[9px] tracking-[0.2em] uppercase text-foreground/30 mb-2 font-light hover:text-foreground/50 transition-colors">
+            <button type="button" onClick={() => setColorsOpen(!colorsOpen)}
+              className="flex items-center justify-between w-full text-[9px] tracking-[0.2em] uppercase text-foreground/30 mb-2 font-light hover:text-foreground/50 transition-colors">
               <span>Color Variants ({colorVariants.length})</span>
               {colorsOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
@@ -168,31 +289,18 @@ export default function ProductForm({ product, onClose, onSaved }) {
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
                   <div className="space-y-3 mb-3">
                     {colorVariants.map((v, i) => (
-                      <div key={i} className="bg-card border border-border/20 p-3 space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <input className={inputCls} placeholder="Color name" value={v.name || ""} onChange={(e) => { const u = [...colorVariants]; u[i] = { ...u[i], name: e.target.value }; setColorVariants(u); }} />
-                          <div className="flex items-center gap-2">
-                            <input type="color" value={v.hex || "#ffffff"} onChange={(e) => { const u = [...colorVariants]; u[i] = { ...u[i], hex: e.target.value }; setColorVariants(u); }} className="w-10 h-[38px] bg-card border border-border/30 cursor-pointer p-0.5" />
-                            <input className={`${inputCls} flex-1`} placeholder="#hex" value={v.hex || ""} onChange={(e) => { const u = [...colorVariants]; u[i] = { ...u[i], hex: e.target.value }; setColorVariants(u); }} />
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[9px] tracking-[0.15em] uppercase text-foreground/25 mb-1.5">Color Image URL</p>
-                          <input className={inputCls} placeholder="Image URL for this color..." value={v.image_url || ""} onChange={(e) => { const u = [...colorVariants]; u[i] = { ...u[i], image_url: e.target.value }; setColorVariants(u); }} />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <button type="button" onClick={() => { const u = [...colorVariants]; u[i] = { ...u[i], in_stock: !(v.in_stock !== false) }; setColorVariants(u); }} className={`w-8 h-4 relative transition-colors ${v.in_stock !== false ? "bg-foreground/40" : "bg-border/40"}`}>
-                              <span className={`absolute top-0.5 w-3 h-3 bg-foreground transition-transform ${v.in_stock !== false ? "translate-x-4" : "translate-x-0.5"}`} />
-                            </button>
-                            <span className="text-[9px] text-foreground/35">{v.in_stock !== false ? "In Stock" : "Out of Stock"}</span>
-                          </label>
-                          <button type="button" onClick={() => setColorVariants(colorVariants.filter((_, idx) => idx !== i))} className="text-foreground/25 hover:text-destructive transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </div>
+                      <ColorVariantField
+                        key={i}
+                        variant={v}
+                        index={i}
+                        onChange={updateColorVariant}
+                        onRemove={(idx) => setColorVariants(colorVariants.filter((_, x) => x !== idx))}
+                      />
                     ))}
                   </div>
-                  <button type="button" onClick={() => setColorVariants([...colorVariants, { name: "", hex: "#ffffff", image_url: "", in_stock: true }])} className="w-full py-2 border border-dashed border-border/30 text-[9px] tracking-[0.15em] uppercase text-foreground/30 hover:border-foreground/30 hover:text-foreground/50 transition-colors flex items-center justify-center gap-1.5">
+                  <button type="button"
+                    onClick={() => setColorVariants([...colorVariants, { name: "", hex: "#ffffff", images: [], image_url: "", in_stock: true }])}
+                    className="w-full py-2 border border-dashed border-border/30 text-[9px] tracking-[0.15em] uppercase text-foreground/30 hover:border-foreground/30 hover:text-foreground/50 transition-colors flex items-center justify-center gap-1.5">
                     <Plus className="w-3 h-3" /> Add Color
                   </button>
                 </motion.div>
@@ -202,7 +310,8 @@ export default function ProductForm({ product, onClose, onSaved }) {
 
           <Field label="Stock Status">
             <div className="flex items-center gap-3">
-              <button type="button" onClick={() => set("in_stock", !form.in_stock)} className={`w-10 h-5 transition-colors duration-300 relative ${form.in_stock ? "bg-foreground/40" : "bg-border/40"}`}>
+              <button type="button" onClick={() => set("in_stock", !form.in_stock)}
+                className={`w-10 h-5 transition-colors duration-300 relative ${form.in_stock ? "bg-foreground/40" : "bg-border/40"}`}>
                 <span className={`absolute top-0.5 w-4 h-4 bg-foreground transition-transform duration-300 ${form.in_stock ? "translate-x-5" : "translate-x-0.5"}`} />
               </button>
               <span className="text-xs text-foreground/50">{form.in_stock ? "In Stock" : "Out of Stock"}</span>
@@ -212,7 +321,8 @@ export default function ProductForm({ product, onClose, onSaved }) {
 
         <div className="border-t border-border/20 px-6 py-5 flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 border border-border/30 text-foreground/40 text-[10px] tracking-[0.15em] uppercase hover:border-foreground/30 hover:text-foreground/60 transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={saving || !form.name || !form.price} className="flex-1 py-3 bg-foreground text-background text-[10px] tracking-[0.15em] uppercase hover:bg-foreground/85 transition-colors disabled:opacity-40">
+          <button onClick={handleSave} disabled={saving || !form.name || !form.price}
+            className="flex-1 py-3 bg-foreground text-background text-[10px] tracking-[0.15em] uppercase hover:bg-foreground/85 transition-colors disabled:opacity-40">
             {saving ? "Saving..." : product ? "Update" : "Create"}
           </button>
         </div>

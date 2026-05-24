@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, ChevronLeft, Plus, Minus } from "lucide-react";
@@ -10,6 +10,7 @@ import { Products, CartItems, WishlistItems } from "@/lib/db";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedSize, setSelectedSize] = useState(null);
   const [selectedColor, setSelectedColor] = useState(null);
@@ -18,22 +19,38 @@ export default function ProductDetail() {
   const [addedToCart, setAddedToCart] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
 
+  // Support navigating to a specific color via URL hash e.g. /product/id#Black
+  useEffect(() => {
+    const hash = decodeURIComponent(window.location.hash.slice(1));
+    if (hash) {
+      // will be applied once product loads
+      window.__pendingColor = hash;
+    }
+  }, [id]);
+
   const { data: products = [] } = useQuery({
     queryKey: ["products"],
     queryFn: () => Products.list("-created_at", 100),
   });
 
   const product = products.find((p) => p.id === id);
-  const relatedProducts = products.filter((p) => p.id !== id && p.category === product?.category).slice(0, 4);
+  const relatedProducts = products
+    .filter((p) => p.id !== id && p.category === product?.category)
+    .slice(0, 4);
 
   useEffect(() => {
+    if (!product) return;
     if (product?.color_variants?.length > 0) {
-      const firstAvailable = product.color_variants.find((v) => v.in_stock !== false) || product.color_variants[0];
+      // Check for pending color from card click
+      const pending = window.__pendingColor;
+      const match = pending && product.color_variants.find(v => v.name === pending);
+      const firstAvailable = match || product.color_variants.find((v) => v.in_stock !== false) || product.color_variants[0];
       setSelectedColor(firstAvailable);
-      setActiveImage(0);
+      window.__pendingColor = null;
     } else {
       setSelectedColor(null);
     }
+    setActiveImage(0);
   }, [product?.id]);
 
   if (!product) {
@@ -44,18 +61,30 @@ export default function ProductDetail() {
     );
   }
 
-  const baseImages = [product.image_url, product.hover_image_url].filter(Boolean);
-  const variantImages = selectedColor ? [selectedColor.image_url, selectedColor.hover_image_url].filter(Boolean) : [];
-  const images = variantImages.length > 0 ? variantImages : baseImages;
+  // Build image list: color images > gallery > fallback
+  const getImages = () => {
+    if (selectedColor) {
+      const colorImgs = selectedColor.images?.filter(Boolean) || [];
+      if (colorImgs.length > 0) return colorImgs;
+      if (selectedColor.image_url) return [selectedColor.image_url];
+    }
+    if (product.gallery_images?.length > 0) return product.gallery_images.filter(Boolean);
+    return [product.image_url, product.hover_image_url].filter(Boolean);
+  };
 
-  const handleColorChange = (variant) => { setSelectedColor(variant); setActiveImage(0); };
+  const images = getImages();
+
+  const handleColorChange = (variant) => {
+    setSelectedColor(variant);
+    setActiveImage(0);
+  };
 
   const addToCart = async () => {
     setAddingToCart(true);
     await CartItems.create({
       product_id: product.id,
       product_name: product.name + (selectedColor ? ` — ${selectedColor.name}` : ""),
-      product_image: (selectedColor?.image_url) || product.image_url,
+      product_image: (selectedColor?.images?.[0] || selectedColor?.image_url) || product.image_url,
       price: product.price,
       size: selectedSize || "",
       quantity: 1,
@@ -79,13 +108,15 @@ export default function ProductDetail() {
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-[1500px] mx-auto px-6 lg:px-16 pt-[80px] pb-6">
-        <button onClick={() => window.history.back()} className="flex items-center gap-2 text-[10px] tracking-[0.15em] uppercase text-foreground/25 hover:text-foreground/50 transition-colors duration-300 group">
+        <button onClick={() => window.history.back()}
+          className="flex items-center gap-2 text-[10px] tracking-[0.15em] uppercase text-foreground/25 hover:text-foreground/50 transition-colors duration-300 group">
           <ChevronLeft className="w-3.5 h-3.5 group-hover:-translate-x-0.5 transition-transform duration-300" />Back
         </button>
       </div>
 
       <div className="max-w-[1500px] mx-auto px-6 lg:px-16 pb-24">
         <div className="lg:grid lg:grid-cols-[1fr_420px] xl:grid-cols-[1fr_480px] lg:gap-16 xl:gap-24">
+          {/* Image gallery */}
           <div>
             <div className="aspect-[3/4] lg:aspect-[4/5] overflow-hidden bg-card relative">
               <AnimatePresence mode="wait">
@@ -102,9 +133,10 @@ export default function ProductDetail() {
               </AnimatePresence>
             </div>
             {images.length > 1 && (
-              <div className="flex gap-2 mt-3">
+              <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
                 {images.map((img, i) => (
-                  <button key={i} onClick={() => setActiveImage(i)} className={`w-16 h-20 lg:w-20 lg:h-24 overflow-hidden transition-all duration-300 ${activeImage === i ? "ring-1 ring-foreground/40 opacity-100" : "opacity-40 hover:opacity-70"}`}>
+                  <button key={i} onClick={() => setActiveImage(i)}
+                    className={`flex-shrink-0 w-16 h-20 lg:w-20 lg:h-24 overflow-hidden transition-all duration-300 ${activeImage === i ? "ring-1 ring-foreground/40 opacity-100" : "opacity-40 hover:opacity-70"}`}>
                     <img src={img} alt="" className="w-full h-full object-cover" />
                   </button>
                 ))}
@@ -112,6 +144,7 @@ export default function ProductDetail() {
             )}
           </div>
 
+          {/* Product info */}
           <div className="mt-10 lg:mt-0">
             <div className="lg:sticky lg:top-28">
               <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15, ease: [0.25, 0.1, 0.25, 1] }}>
@@ -136,7 +169,8 @@ export default function ProductDetail() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {product.sizes.map((size) => (
-                        <button key={size} onClick={() => setSelectedSize(size)} className={`min-w-[52px] h-11 px-3 text-[10px] tracking-[0.1em] border transition-all duration-250 ${selectedSize === size ? "border-foreground/60 text-foreground bg-foreground/5" : "border-border/30 text-foreground/30 hover:border-foreground/25 hover:text-foreground/55"}`}>
+                        <button key={size} onClick={() => setSelectedSize(size)}
+                          className={`min-w-[52px] h-11 px-3 text-[10px] tracking-[0.1em] border transition-all duration-250 ${selectedSize === size ? "border-foreground/60 text-foreground bg-foreground/5" : "border-border/30 text-foreground/30 hover:border-foreground/25 hover:text-foreground/55"}`}>
                           {size}
                         </button>
                       ))}
@@ -144,13 +178,17 @@ export default function ProductDetail() {
                   </div>
                 )}
                 <div className="space-y-2.5 mb-10">
-                  <button onClick={addToCart} disabled={addingToCart} className={`w-full py-4 text-[10px] font-medium tracking-[0.2em] uppercase transition-all duration-400 ${addedToCart ? "bg-foreground/10 text-foreground/60 border border-foreground/20" : "bg-foreground text-background hover:bg-foreground/85"} disabled:opacity-40`}>
+                  <button onClick={addToCart} disabled={addingToCart}
+                    className={`w-full py-4 text-[10px] font-medium tracking-[0.2em] uppercase transition-all duration-400 ${addedToCart ? "bg-foreground/10 text-foreground/60 border border-foreground/20" : "bg-foreground text-background hover:bg-foreground/85"} disabled:opacity-40`}>
                     {addingToCart ? "Adding..." : addedToCart ? "Added to Cart ✓" : "Add to Cart"}
                   </button>
-                  <a href={buildWhatsAppURL(productOrderMessage({ name: product.name, price: product.price, size: selectedSize, id: product.id }))} target="_blank" rel="noopener noreferrer" className="w-full py-4 bg-green-600 hover:bg-green-500 text-white text-[10px] font-medium tracking-[0.2em] uppercase transition-all duration-400 flex items-center justify-center gap-2.5">
+                  <a href={buildWhatsAppURL(productOrderMessage({ name: product.name, price: product.price, size: selectedSize, id: product.id }))}
+                    target="_blank" rel="noopener noreferrer"
+                    className="w-full py-4 bg-green-600 hover:bg-green-500 text-white text-[10px] font-medium tracking-[0.2em] uppercase transition-all duration-400 flex items-center justify-center gap-2.5">
                     Buy Now
                   </a>
-                  <button onClick={addToWishlist} className="w-full py-4 border border-border/25 text-foreground/35 text-[10px] font-light tracking-[0.2em] uppercase hover:border-foreground/35 hover:text-foreground/60 transition-all duration-400 flex items-center justify-center gap-2.5">
+                  <button onClick={addToWishlist}
+                    className="w-full py-4 border border-border/25 text-foreground/35 text-[10px] font-light tracking-[0.2em] uppercase hover:border-foreground/35 hover:text-foreground/60 transition-all duration-400 flex items-center justify-center gap-2.5">
                     <Heart className="w-3.5 h-3.5" />Save to Wishlist
                   </button>
                 </div>

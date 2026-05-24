@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Heart, ShoppingBag } from "lucide-react";
 import { motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,9 @@ export default function ProductCard({ product, index = 0 }) {
   const [hovered, setHovered] = useState(false);
   const [wishlisted, setWishlisted] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [hoveredColor, setHoveredColor] = useState(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const toggleWishlist = async (e) => {
     e.preventDefault();
@@ -32,8 +34,8 @@ export default function ProductCard({ product, index = 0 }) {
     setAdding(true);
     await CartItems.create({
       product_id: product.id,
-      product_name: product.name,
-      product_image: product.image_url,
+      product_name: product.name + (hoveredColor ? ` — ${hoveredColor.name}` : ""),
+      product_image: (hoveredColor?.images?.[0] || hoveredColor?.image_url) || product.image_url,
       price: product.price,
       size: product.sizes?.[0] || "",
       quantity: 1,
@@ -42,7 +44,26 @@ export default function ProductCard({ product, index = 0 }) {
     setTimeout(() => setAdding(false), 800);
   };
 
-  const showAltImage = hovered && product.hover_image_url;
+  const handleColorClick = (e, variant) => {
+    e.preventDefault();
+    e.stopPropagation();
+    window.__pendingColor = variant.name;
+    navigate(`/product/${product.id}#${encodeURIComponent(variant.name)}`);
+  };
+
+  // Determine displayed image based on hovered color
+  const getDisplayImages = () => {
+    if (hoveredColor) {
+      const imgs = hoveredColor.images?.filter(Boolean) || [];
+      if (imgs.length >= 2) return { main: imgs[0], hover: imgs[1] };
+      if (imgs.length === 1) return { main: imgs[0], hover: null };
+      if (hoveredColor.image_url) return { main: hoveredColor.image_url, hover: null };
+    }
+    return { main: product.image_url, hover: product.hover_image_url };
+  };
+
+  const { main: mainImage, hover: hoverImage } = getDisplayImages();
+  const showAltImage = hovered && hoverImage;
 
   return (
     <motion.div
@@ -59,16 +80,16 @@ export default function ProductCard({ product, index = 0 }) {
       >
         <div className="relative aspect-[3/4] overflow-hidden bg-card mb-4">
           <img
-            src={product.image_url}
+            src={mainImage}
             alt={product.name}
             loading="lazy"
             className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-out ${
               showAltImage ? "opacity-0 scale-[1.04]" : "opacity-100 scale-100 group-hover:scale-[1.04]"
             }`}
           />
-          {product.hover_image_url && (
+          {hoverImage && (
             <img
-              src={product.hover_image_url}
+              src={hoverImage}
               alt={product.name}
               loading="lazy"
               className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ease-out ${
@@ -110,11 +131,24 @@ export default function ProductCard({ product, index = 0 }) {
             )}
           </div>
           {product.color_variants?.length > 0 && (
-            <div className="flex items-center gap-1.5 pt-0.5">
+            <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
               {product.color_variants.slice(0, 6).map((v, i) => (
-                <span key={i} title={v.name} className="w-3 h-3 rounded-full border border-white/10 flex-shrink-0" style={{ backgroundColor: v.hex || "#ccc" }} />
+                <button
+                  key={i}
+                  type="button"
+                  title={v.name}
+                  onClick={(e) => handleColorClick(e, v)}
+                  onMouseEnter={() => setHoveredColor(v)}
+                  onMouseLeave={() => setHoveredColor(null)}
+                  className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all duration-200 hover:scale-125 ${
+                    hoveredColor?.name === v.name ? "border-foreground/70 scale-110" : "border-white/20"
+                  }`}
+                  style={{ backgroundColor: v.hex || "#ccc" }}
+                />
               ))}
-              {product.color_variants.length > 6 && <span className="text-[8px] text-foreground/25 ml-0.5">+{product.color_variants.length - 6}</span>}
+              {product.color_variants.length > 6 && (
+                <span className="text-[8px] text-foreground/25 ml-0.5">+{product.color_variants.length - 6}</span>
+              )}
             </div>
           )}
         </div>
